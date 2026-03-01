@@ -9,16 +9,16 @@ Vključuje numerično analizo lastnih nihanj 2D paličnih konstrukcij z metodo k
 * **Interaktivna vizualizacija:** Animacija lastnih oblik z uporabo drsnika za izbiro načina nihanja.
 
 ## Primer uporabe
-```import numpy as np
-from DSKR_tools import Truss
+```from DSKR_tools import Truss
+%matplotlib qt
 
 # Definiraj vozlišča
-vozlisca = np.array([[0,0], 
+nodes = np.array([[0,0], 
                     [1,0], 
                     [0, 1],])
 
 # Definiraj elemente
-elementi = np.array([[0,1],
+elements = np.array([[0,1],
                     [1,2],
                     [0,2],])
 # Definiraj omejitve
@@ -30,7 +30,7 @@ C[2,2]=np.sin(phi)
 C[2,3]=-np.cos(phi)
 
 # Ustvari model (A=presek, E=modul elastičnosti, rho=gostota)
-model = Truss(nodes, elements, A=1e-4, E=210e9, rho=7850, C)
+model = Truss(nodes, elements, A=1e-4, E=210e9, rho=7850, constraints=C)
 
 # Zaženi animacijo lastnih oblik
 model.animate_mode_shapes(scale=0.2)
