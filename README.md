@@ -9,7 +9,9 @@ Vključuje numerično analizo lastnih nihanj 2D paličnih konstrukcij z metodo k
 * **Interaktivna vizualizacija:** Animacija lastnih oblik z uporabo drsnika za izbiro načina nihanja.
 
 ## Primer uporabe
-```from DSKR_tools import Truss
+```
+import numpy as np
+from DSKR_tools import Truss
 %matplotlib qt
 
 # Definiraj vozlišča
