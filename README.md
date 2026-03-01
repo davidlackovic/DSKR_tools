@@ -24,3 +24,4 @@ model = Truss(nodes, elements, A=1e-4, E=210e9, rho=7850)
 # Zaženi animacijo lastnih oblik
 model.animate_mode_shapes(scale=0.2)
 ```
+<img src="images/example.gif" width="700">
