@@ -138,6 +138,13 @@ class Truss2D():
 
 
     def edit_constraints(self):
+        '''Open a UI to edit constraints of a Truss2D object. 
+
+        If there are existing constraints you can remove them or add more within this function. \n
+        Compatible with passing constraint matrix when creating Truss2D object. 
+          
+
+        '''
         if hasattr(self, 'constraints') and self.constraints is not None:
             self.temp_rows = self.constraints.tolist()
         else:
@@ -168,8 +175,6 @@ class Truss2D():
         self.current_angle = 0 
         n_dof = 2 * len(self.nodes)
 
-        # --- POMOŽNE FUNKCIJE ZA IZRIS ---
-
         def draw_fixed_icon(node_idx):
             p.add_mesh(pv.Sphere(radius=0.2, center=pts[node_idx]), 
                        color="firebrick", name=f"fixed_{node_idx}")
@@ -183,33 +188,25 @@ class Truss2D():
                               name=f"angle_label_{node_idx}", 
                               shape=None, always_visible=True, shadow=True)
 
-        # 2. AVTOMATSKI IZRIS OBSTOJEČIH CONSTRAINT-OV
         if self.temp_rows:
             processed_nodes = set()
             for row in self.temp_rows:
-                # Najdemo kje v vrstici so vrednosti (DOF-i)
+                # kje v vrstici so vrednosti 
                 active_dofs = np.where(np.abs(row) > 1e-6)[0]
                 if len(active_dofs) == 0: continue
                 
                 node_idx = active_dofs[0] // 2
                 if node_idx in processed_nodes: continue
                 
-                # Preverimo če je fiksno (dve vrstici na vozlišče običajno pomenita fiksno)
-                # Tu preverimo specifično vrstico: če sta oba DOF-a 1, je fiksno
-                # Bolj varna metoda: če je v vrstici samo en DOF aktiven in je to X ali Y
                 if np.abs(row[2*node_idx]) > 0.99 and np.abs(row[2*node_idx+1]) < 0.01:
-                    # Verjetno fiksno (prenaša X), preverimo če obstaja še vrstica za Y
                     draw_fixed_icon(node_idx)
                     processed_nodes.add(node_idx)
                 else:
-                    # Izračunamo kot iz vrednosti v matriki: tan(phi + 90) = row_y / row_x
-                    # phi_val = atan2(row_y, row_x) - pi/2
                     angle_rad = np.arctan2(row[2*node_idx+1], row[2*node_idx]) - np.pi/2
                     angle_deg = np.degrees(angle_rad) % 180
                     draw_angled_icon(node_idx, round(angle_deg))
                     processed_nodes.add(node_idx)
 
-        # --- INTERAKTIVNE FUNKCIJE ---
 
         def slider_callback(value):
             self.current_angle = int(round(value))
@@ -230,7 +227,6 @@ class Truss2D():
 
         def set_fixed():
             if self.last_picked_idx is not None:
-                # Najprej počistimo stare pogoje na tem vozlišču
                 remove_at_node()
                 r1, r2 = np.zeros(n_dof), np.zeros(n_dof)
                 r1[2*self.last_picked_idx], r2[2*self.last_picked_idx+1] = 1, 1
@@ -275,7 +271,7 @@ class Truss2D():
 
         p.show()
 
-        # Shranjevanje in posodobitev ob zaprtju
+        
         if self.temp_rows:
             self.constraints = np.array(self.temp_rows)
             print("Solver has been updated.")
