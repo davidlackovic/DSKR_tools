@@ -48,6 +48,13 @@ model.edit_constraints()
 
 <img src="images/edit.gif" width="700">
 
+Z desnim klikom izberemo vozlišče, nato pa s pritiskom tipk (1), (2) in (3) urejamo vozlišča:
+- (1) doda nepomično členkasto podporo
+- (2) doda pomično členkasto podporo, ki se lahko pomika vzdolž osi, definirane s kotom na drsniku desno zgoraj (kot se zaokroži na cele stopinje)
+- (3) odstrani podporo
+
+Omejitve lahko definiramo tudi s podajanjem matrike C pri ustvarjanju objekta Truss2D; enako bodo prikazane v uporabniškem vmesniku.
+
 ```
 # Zaženi animacijo lastnih oblik
 model.animate_mode_shapes(scale=2)
