@@ -1,1 +1,1 @@
-from .DSKR_tools import Truss
+from .DSKR_tools import Truss2D

@@ -11,30 +11,45 @@ Vključuje numerično analizo lastnih nihanj 2D paličnih konstrukcij z metodo k
 ## Primer uporabe
 ```
 import numpy as np
-from DSKR_tools import Truss
+import scipy as sp
+import sympy as sym
+import matplotlib.pyplot as plt
+from DSKR_tools import Truss2D
 %matplotlib qt
 
 # Definiraj vozlišča
-nodes = np.array([[0,0], 
-                    [1,0], 
-                    [0, 1],])
+nodes = np.array([
+    [0.0, 0.0], [2.0, 0.0], [4.0, 0.0], [6.0, 0.0], [8.0, 0.0], [10.0, 0.0], # Spodaj (0-5)
+    [1.0, 1.732], [3.0, 1.732], [5.0, 1.732], [7.0, 1.732], [9.0, 1.732]    # Zgoraj (6-10)
+])
 
 # Definiraj elemente
-elements = np.array([[0,1],
-                    [1,2],
-                    [0,2],])
-# Definiraj omejitve
-phi = np.pi/4
-C = np.zeros((3,6))
-C[0,0]=1
-C[1,1]=1
-C[2,2]=np.sin(phi)
-C[2,3]=-np.cos(phi)
+elements = np.array([
+    # Spodnji pas
+    [0, 1], [1, 2], [2, 3], [3, 4], [4, 5],
+    # Zgornji pas
+    [6, 7], [7, 8], [8, 9], [9, 10],
+    # Diagonale (cik-cak vzorec)
+    [0, 6], [6, 1], [1, 7], [7, 2], [2, 8], [8, 3], [3, 9], [9, 4], [4, 10], [10, 5]
+])
 
 # Ustvari model (A=presek, E=modul elastičnosti, rho=gostota)
-model = Truss(nodes, elements, A=1e-4, E=210e9, rho=7850, constraints=C)
+model = Truss(nodes, elements, A=1e-4, E=210e9, rho=7850)
 
-# Zaženi animacijo lastnih oblik
-model.animate_mode_shapes(scale=0.2)
+# Prikažemo paličje
+model.display_truss()
 ```
-<img src="images/example.gif" width="700">
+<img src="images/display_truss.png" width="700">
+
+```
+# Nastavimo robne pogoje (omejitve)
+model.edit_constraints()
+```
+
+<img src="images/edit.gif" width="700">
+
+```
+# Zaženi animacijo lastnih oblik
+model.animate_mode_shapes(scale=2)
+```
+<img src="images/animate.gif" width="700">

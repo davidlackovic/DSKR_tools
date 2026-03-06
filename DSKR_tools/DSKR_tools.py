@@ -2,8 +2,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import scipy as sp
 from typing import Optional, Union
+import pyvista as pv
 
-class Truss():
+class Truss2D():
     '''A universal class for 2D truss analysis using FEM.
    
     '''
@@ -62,10 +63,11 @@ class Truss():
 
         self.nodes = nodes
         self.elements = elements
-        self.constraints = constraints
         self.A = A
         self.E = E
         self.rho = rho
+
+        self.constraints = constraints if constraints is not None else np.empty((0, 2 * len(nodes)))
 
         M_glob = calculate_M_glob(self.nodes, self.elements, self.A, self.rho)
         K_glob = calculate_K_glob(self.nodes, self.elements, self.A, self.E)
@@ -89,7 +91,7 @@ class Truss():
         self.eig_freq = eig_freq.round(3)
 
         
-        
+        self._update_solver()
     
     def display_truss(self):
         display_truss(self.nodes, self.elements)
@@ -105,8 +107,181 @@ class Truss():
         '''
         self.anim = animate_mode_shapes(self.nodes, self.elements, self.eig_vec, scale=scale)
         return self.anim
+    
+    def _update_solver(self):
+        '''Method for updating matrices.'''
+
+        M_glob = calculate_M_glob(self.nodes, self.elements, self.A, self.rho)
+        K_glob = calculate_K_glob(self.nodes, self.elements, self.A, self.E)
+
+        if self.constraints is not None:
+            L = sp.linalg.null_space(self.constraints)
+
+            M_glob_constrained = L.T @ M_glob @ L
+            K_glob_constrained = L.T @ K_glob @ L
+
+            self.eig_val, self.eig_vec = sp.linalg.eigh(K_glob_constrained, M_glob_constrained)
+            self.eig_vec=L@self.eig_vec
+            self.eig_val = np.abs(self.eig_val)
+        
+        else:
+            self.eig_val, self.eig_vec = sp.linalg.eigh(K_glob, M_glob)
+            self.eig_val = np.abs(self.eig_val)
+
+        eig_freq = np.sqrt(self.eig_val) / 2 / np.pi
+        self.eig_freq = eig_freq.round(3)
+        
+        print("Solver has been updated.")
 
 
+
+
+
+    def edit_constraints(self):
+        if hasattr(self, 'constraints') and self.constraints is not None:
+            self.temp_rows = self.constraints.tolist()
+        else:
+            self.temp_rows = []
+
+        pv.set_jupyter_backend(None)
+        p = pv.Plotter(notebook=False, title="Truss2D - Edit Constraints")
+        p.set_background("white")
+        p.enable_parallel_projection()
+
+        pts = np.column_stack((self.nodes, np.zeros(len(self.nodes))))
+        cells = np.hstack([[2, e[0], e[1]] for e in self.elements])
+        mesh = pv.UnstructuredGrid(cells, [pv.CellType.LINE]*len(self.elements), pts)
+
+        p.add_mesh(mesh, color="#555555", line_width=2, render_lines_as_tubes=True)
+        p.add_point_labels(pts, [f"{i}" for i in range(len(self.nodes))], 
+                          point_size=10, font_size=18, text_color="black", 
+                          always_visible=True, name="node_labels", shadow=True)
+
+        axis_len = np.max(np.abs(self.nodes)) * 0.25 if np.any(self.nodes) else 1.0
+        p.add_mesh(pv.Arrow(start=(0,0,0), direction=(1,0,0), scale=axis_len, tip_radius=0.03, shaft_radius=0.01), color="red")
+        p.add_mesh(pv.Arrow(start=(0,0,0), direction=(0,1,0), scale=axis_len, tip_radius=0.03, shaft_radius=0.01), color="green")
+
+        p.view_xy()
+        p.camera.zoom(0.7)
+
+        self.last_picked_idx = None
+        self.current_angle = 0 
+        n_dof = 2 * len(self.nodes)
+
+        # --- POMOŽNE FUNKCIJE ZA IZRIS ---
+
+        def draw_fixed_icon(node_idx):
+            p.add_mesh(pv.Sphere(radius=0.2, center=pts[node_idx]), 
+                       color="firebrick", name=f"fixed_{node_idx}")
+
+        def draw_angled_icon(node_idx, angle):
+            p.add_mesh(pv.Sphere(radius=0.2, center=pts[node_idx]), 
+                       color="royalblue", name=f"angled_{node_idx}")
+            offset_pos = pts[node_idx] + [axis_len*0.05, axis_len*0.05, 0]
+            p.add_point_labels([offset_pos], [f"{int(angle)}°"], 
+                              font_size=25, text_color="royalblue", 
+                              name=f"angle_label_{node_idx}", 
+                              shape=None, always_visible=True, shadow=True)
+
+        # 2. AVTOMATSKI IZRIS OBSTOJEČIH CONSTRAINT-OV
+        if self.temp_rows:
+            processed_nodes = set()
+            for row in self.temp_rows:
+                # Najdemo kje v vrstici so vrednosti (DOF-i)
+                active_dofs = np.where(np.abs(row) > 1e-6)[0]
+                if len(active_dofs) == 0: continue
+                
+                node_idx = active_dofs[0] // 2
+                if node_idx in processed_nodes: continue
+                
+                # Preverimo če je fiksno (dve vrstici na vozlišče običajno pomenita fiksno)
+                # Tu preverimo specifično vrstico: če sta oba DOF-a 1, je fiksno
+                # Bolj varna metoda: če je v vrstici samo en DOF aktiven in je to X ali Y
+                if np.abs(row[2*node_idx]) > 0.99 and np.abs(row[2*node_idx+1]) < 0.01:
+                    # Verjetno fiksno (prenaša X), preverimo če obstaja še vrstica za Y
+                    draw_fixed_icon(node_idx)
+                    processed_nodes.add(node_idx)
+                else:
+                    # Izračunamo kot iz vrednosti v matriki: tan(phi + 90) = row_y / row_x
+                    # phi_val = atan2(row_y, row_x) - pi/2
+                    angle_rad = np.arctan2(row[2*node_idx+1], row[2*node_idx]) - np.pi/2
+                    angle_deg = np.degrees(angle_rad) % 180
+                    draw_angled_icon(node_idx, round(angle_deg))
+                    processed_nodes.add(node_idx)
+
+        # --- INTERAKTIVNE FUNKCIJE ---
+
+        def slider_callback(value):
+            self.current_angle = int(round(value))
+            if self.last_picked_idx is not None:
+                update_status_text()
+
+        def update_status_text():
+            status = (f"Node: {self.last_picked_idx}\n"
+                      f"[1] Pinned support     [2] Roller support at angle {self.current_angle}°         [3] Remove constraint")
+            p.add_text(status, position='lower_left', color='black', font_size=19, name="status_text", shadow=True)
+
+        def pick_callback(point_data, *args):
+            idx = mesh.find_closest_point(point_data)
+            self.last_picked_idx = idx
+            p.add_mesh(pv.Sphere(radius=0.1, center=pts[idx]), color="yellow", opacity=0.4, name="selection_glow")
+            p.add_mesh(pv.Sphere(radius=0.01, center=pts[idx]), color="black", name="selection_center")
+            update_status_text()
+
+        def set_fixed():
+            if self.last_picked_idx is not None:
+                # Najprej počistimo stare pogoje na tem vozlišču
+                remove_at_node()
+                r1, r2 = np.zeros(n_dof), np.zeros(n_dof)
+                r1[2*self.last_picked_idx], r2[2*self.last_picked_idx+1] = 1, 1
+                self.temp_rows.extend([r1, r2])
+                draw_fixed_icon(self.last_picked_idx)
+
+        def set_angled():
+            if self.last_picked_idx is not None:
+                remove_at_node()
+                phi = np.radians(self.current_angle)
+                r = np.zeros(n_dof)
+                r[2*self.last_picked_idx] = np.cos(phi + np.pi/2)
+                r[2*self.last_picked_idx + 1] = np.sin(phi + np.pi/2)
+                self.temp_rows.append(r)
+                draw_angled_icon(self.last_picked_idx, self.current_angle)
+        
+        def remove_at_node():
+            if self.last_picked_idx is not None:
+                idx = self.last_picked_idx
+                dof1, dof2 = 2*idx, 2*idx + 1
+                self.temp_rows = [r for r in self.temp_rows if np.abs(r[dof1]) < 1e-6 and np.abs(r[dof2]) < 1e-6]
+                p.remove_actor(f"fixed_{idx}")
+                p.remove_actor(f"angled_{idx}")
+                p.remove_actor(f"angle_label_{idx}")
+
+        p.add_slider_widget(callback=slider_callback, rng=[0, 180], value=0,
+                            pointa=(0.6, 0.9), pointb=(0.9, 0.9), style='modern', color="black",
+                            tube_width=0.003, slider_width=0.02)
+
+        p.add_text("Right click to select a node", position='upper_left', 
+                   font_size=12, color='black', name="instruction_text")
+
+        
+        p.enable_point_picking(
+            callback=pick_callback, 
+            show_message=False,
+            left_clicking=False
+        )
+        p.add_key_event('1', set_fixed)
+        p.add_key_event('2', set_angled)
+        p.add_key_event('3', remove_at_node)
+
+        p.show()
+
+        # Shranjevanje in posodobitev ob zaprtju
+        if self.temp_rows:
+            self.constraints = np.array(self.temp_rows)
+            print("Solver has been updated.")
+            self._update_solver()
+        else:
+            self.constraints = None
     
 
 def calculate_K_glob(nodes=np.ndarray, elements=np.ndarray, A=np.float64 or np.ndarray, E = np.float64 or np.ndarray):
@@ -273,8 +448,8 @@ def animate_mode_shapes(nodes=np.ndarray, elements=np.ndarray, eig_vec=np.ndarra
     plt.subplots_adjust(bottom=0.2)
     ax.set_aspect('equal')
     
-    ax.set_xlim(np.min(nodes[:,0])-0.5, np.max(nodes[:,0])+0.5)
-    ax.set_ylim(np.min(nodes[:,1])-0.5, np.max(nodes[:,1])+0.5)
+    ax.set_xlim(np.min(nodes[:,0])-1.5, np.max(nodes[:,0])+1.5)
+    ax.set_ylim(np.min(nodes[:,1])-1.5, np.max(nodes[:,1])+1.5)
 
     lines = [ax.plot([], [], '-o', c='C0')[0] for _ in elements]
 
