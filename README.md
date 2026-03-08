@@ -12,7 +12,7 @@ Knjižnica omogoča modeliranje dveh osnovnih tipov linijskih konstrukcij:
    
 2. **Frame2D (Okvirji):**
    - Vozlišča so **toga**.
-   - Elementi prenašajo **osne sile, strižne sile in upogibne momente**.
+   - Elementi prenašajo **osne sile in upogibne momente (Eulerjeva teorija upogiba nosilcev**.
    - Vsako vozlišče ima 3 prostostne stopnje (translaciji $u, v$ ter rotacijo $\phi$).
 
 
