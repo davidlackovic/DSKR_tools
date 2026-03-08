@@ -2,13 +2,29 @@
 Paket orodij za laboratorijske vaje pri predmetu **Dinamika strojev in konstrukcij (DSKR)**. 
 Vključuje numerično analizo lastnih nihanj 2D paličnih konstrukcij z metodo končnih elementov (MKE).
 
-## Funkcionalnosti
-* **Modeliranje paličij:** Definicija vozlišč, elementov in materialnih lastnosti ($A, E, \rho$).
-* **Modalna analiza:** Izračun globalnih togostnih ($K$) in masnih ($M$) matrik ter reševanje problema lastnih vrednosti.
-* **Upoštevanje robnih pogojev:** Podpora za poljubne omejitve prostostnih stopenj preko matrike omejitev.
-* **Interaktivna vizualizacija:** Animacija lastnih oblik z uporabo drsnika za izbiro načina nihanja.
+## Modeliranje konstrukcij
+Knjižnica omogoča modeliranje dveh osnovnih tipov linijskih konstrukcij:
 
-## Primer uporabe
+1. **Truss2D (Paličja):**
+   - Vozlišča so modelirana kot **idealni členki**.
+   - Elementi prenašajo izključno **osne sile** (nateg/tlak).
+   - Vsako vozlišče ima 2 prostostni stopnji (translaciji $u, v$).
+   
+2. **Frame2D (Okvirji):**
+   - Vozlišča so **toga**.
+   - Elementi prenašajo **osne sile, strižne sile in upogibne momente**.
+   - Vsako vozlišče ima 3 prostostne stopnje (translaciji $u, v$ ter rotacijo $\phi$).
+
+
+
+## Funkcionalnosti
+* **Interaktivni UI:** Vizualno nastavljanje robnih pogojev neposredno na modelu.
+* **Diskretizacija (`n_mesh`):** Avtomatska poddelitev elementov na manjše segmente za natančnejši izračun lastnih oblik (ključno pri `Frame2D` za prikaz upogibnih linij).
+* **Modalna analiza:** Izračun globalnih matrik $[K]$ in $[M]$ ter reševanje posplošenega problema lastnih vrednosti.
+* **Prikaz lastnih nihanj:** Pripravljene metode za izris nihanja konstrukcije v izbranem lastnem načinu.
+
+
+## Primer uporabe: Truss2D
 ```
 import numpy as np
 import scipy as sp
@@ -34,7 +50,7 @@ elements = np.array([
 ])
 
 # Ustvari model (A=presek, E=modul elastičnosti, rho=gostota)
-model = Truss(nodes, elements, A=1e-4, E=210e9, rho=7850)
+model = Truss2D(nodes, elements, A=1e-4, E=210e9, rho=7850)
 
 # Prikažemo paličje
 model.display_truss()
@@ -60,3 +76,8 @@ Omejitve lahko definiramo tudi s podajanjem matrike C pri ustvarjanju objekta Tr
 model.animate_mode_shapes(scale=2)
 ```
 <img src="images/animate.gif" width="700">
+
+
+## Dodatno: analiza konstrukcij s Frame2D
+- Pri analizi konstrukcij z elementi tipa Frame so v metodi ```model.edit_constraints()``` na voljo tudi omejitve rotacij v členkih (konzolno vpetje).
+- Pri definiciji objekta je na voljo tudi podajanje parametra  ```n_mesh```, s katerim definiramo poddelitev vsakega elementa na n_mesh elementov. S tem izboljšamo natančnost izrisa lastnih oblik, predvsem z vidika zasukov v členkih.
