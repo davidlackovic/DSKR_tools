@@ -1,6 +1,8 @@
 README.md
 setup.py
-DSKR_tools/DSKR_tools.py
+DSKR_tools/Frame2D.py
+DSKR_tools/Frame3D.py
+DSKR_tools/Truss2D.py
 DSKR_tools/__init__.py
 DSKR_tools.egg-info/PKG-INFO
 DSKR_tools.egg-info/SOURCES.txt
