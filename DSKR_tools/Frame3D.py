@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 import scipy as sp
 from typing import Optional, Union
 import pyvista as pv
+import open3d as o3d
+import time
 
 
 
@@ -108,122 +110,80 @@ class Frame3D():
 
     def animate_mode_shapes(self, scale=1.0):
         ''' Animacija lastnih oblik z Open3D - s pikicami na vozliščih in koordinatnimi osmi '''
-        import open3d as o3d
-        import numpy as np
-        import time
-
         pts_orig = self.nodes.copy()
+
+        # razpon modela po vseh treh oseh
+        ranges = np.ptp(pts_orig, axis=0)
+        model_size = np.max(ranges)   
+
+        axis_len = model_size * 0.2
         
-        # Pripravi podatke za linije
         lines = []
         for e in self.elements:
             lines.append([e[0], e[1]])
         
-        # Ustvari geometrijo za nedeformirano mrežo (siva, tanka)
+        # nedeformirana mreža
         line_set_orig = o3d.geometry.LineSet()
         line_set_orig.points = o3d.utility.Vector3dVector(pts_orig)
         line_set_orig.lines = o3d.utility.Vector2iVector(lines)
         
-        # Ustvari geometrijo za deformirano mrežo (modra, debela)
+        # deformirana mreža
         line_set_deformed = o3d.geometry.LineSet()
         line_set_deformed.points = o3d.utility.Vector3dVector(pts_orig)
         line_set_deformed.lines = o3d.utility.Vector2iVector(lines)
         
-        # Pripravi barve za linije
+        # barve
         colors_orig = [[0.7, 0.7, 0.7] for _ in range(len(lines))]  # siva
         colors_deformed = [[0.0, 0.4, 1.0] for _ in range(len(lines))]  # modra
         
         line_set_orig.colors = o3d.utility.Vector3dVector(colors_orig)
         line_set_deformed.colors = o3d.utility.Vector3dVector(colors_deformed)
         
-        # USTVARI PIKICE NA VOZLIŠČIH (rdeče)
+        # vozlisca
         points_cloud = o3d.geometry.PointCloud()
         points_cloud.points = o3d.utility.Vector3dVector(pts_orig)
         colors_points = [[1.0, 0.2, 0.2] for _ in range(len(pts_orig))]  # rdeče
         points_cloud.colors = o3d.utility.Vector3dVector(colors_points)
         
-        # === USTVARI VIZUALIZER ===
         vis = o3d.visualization.VisualizerWithKeyCallback()
         vis.create_window(window_name="Frame3D - Modal Analysis with Nodes and Axes", width=1200, height=800)
         
-        # Dodaj osnovno geometrijo
         vis.add_geometry(line_set_orig)
         vis.add_geometry(line_set_deformed)
         vis.add_geometry(points_cloud)
         
-        # === KOORDINATNE OSI ===
-        # TODO: fix arrows on coordinate frame
+        # ustvarjanje puscic
+        def create_axis_arrow(direction, color):
+            arrow = o3d.geometry.TriangleMesh.create_arrow(
+                cylinder_radius=axis_len*0.02,
+                cone_radius=axis_len*0.04,
+                cylinder_height=axis_len*0.8,
+                cone_height=axis_len*0.2
+            )
+            arrow.paint_uniform_color(color)
+            
+            if direction == 'x':
+                R = arrow.get_rotation_matrix_from_axis_angle([0, np.pi/2, 0])
+                arrow.rotate(R, center=(0, 0, 0))
+            elif direction == 'y':
+                R = arrow.get_rotation_matrix_from_axis_angle([-np.pi/2, 0, 0])
+                arrow.rotate(R, center=(0, 0, 0))
+            return arrow
 
-        axis_len = np.max(np.abs(pts_orig)) * 0.3  # dolžina osi (30% velikosti modela)
+        arrow_x = create_axis_arrow('x', [1.0, 0.0, 0.0])
+        arrow_y = create_axis_arrow('y', [0.0, 1.0, 0.0]) 
+        arrow_z = create_axis_arrow('z', [0.0, 0.0, 1.0])
 
-        # Ustvari puščice za koordinatne osi
-        # Opomba: create_arrow() privzeto kaže v smer +Y
-
-        # X os - rdeča (smer +x) - rotacija okrog Z za -90°
-        arrow_x = o3d.geometry.TriangleMesh.create_arrow(
-            cylinder_radius=axis_len*0.02,
-            cone_radius=axis_len*0.04,
-            cylinder_height=axis_len*0.8,
-            cone_height=axis_len*0.2
-        )
-        R_x = arrow_x.get_rotation_matrix_from_xyz((0, 0, -np.pi/2))  # rotacija okrog Z za -90° (Y->X)
-        arrow_x.rotate(R_x, center=(0, 0, 0))
-        arrow_x.paint_uniform_color([1.0, 0.0, 0.0])  # rdeča
-
-        # Y os - zelena (smer +y) - privzeta smer, ni rotacije
-        arrow_y = o3d.geometry.TriangleMesh.create_arrow(
-            cylinder_radius=axis_len*0.02,
-            cone_radius=axis_len*0.04,
-            cylinder_height=axis_len*0.8,
-            cone_height=axis_len*0.2
-        )
-        arrow_y.paint_uniform_color([0.0, 1.0, 0.0])  # zelena
-
-        # Z os - modra (smer +z) - rotacija okrog X za +90°
-        arrow_z = o3d.geometry.TriangleMesh.create_arrow(
-            cylinder_radius=axis_len*0.02,
-            cone_radius=axis_len*0.04,
-            cylinder_height=axis_len*0.8,
-            cone_height=axis_len*0.2
-        )
-        R_z = arrow_z.get_rotation_matrix_from_xyz((np.pi/2, 0, 0))  # rotacija okrog X za +90° (Y->Z)
-        arrow_z.rotate(R_z, center=(0, 0, 0))
-        arrow_z.paint_uniform_color([0.0, 0.0, 1.0])  # modra
-
-        # Dodaj jih v vizualizer
         vis.add_geometry(arrow_x)
         vis.add_geometry(arrow_y)
         vis.add_geometry(arrow_z)
-
-        # Dodaj tanke črte za podaljške (te so pravilne)
-        line_x = o3d.geometry.LineSet()
-        line_x.points = o3d.utility.Vector3dVector([[-axis_len*0.2, 0, 0], [axis_len*1.2, 0, 0]])
-        line_x.lines = o3d.utility.Vector2iVector([[0, 1]])
-        line_x.colors = o3d.utility.Vector3dVector([[1.0, 0.0, 0.0]])
-
-        line_y = o3d.geometry.LineSet()
-        line_y.points = o3d.utility.Vector3dVector([[0, -axis_len*0.2, 0], [0, axis_len*1.2, 0]])
-        line_y.lines = o3d.utility.Vector2iVector([[0, 1]])
-        line_y.colors = o3d.utility.Vector3dVector([[0.0, 1.0, 0.0]])
-
-        line_z = o3d.geometry.LineSet()
-        line_z.points = o3d.utility.Vector3dVector([[0, 0, -axis_len*0.2], [0, 0, axis_len*1.2]])
-        line_z.lines = o3d.utility.Vector2iVector([[0, 1]])
-        line_z.colors = o3d.utility.Vector3dVector([[0.0, 0.0, 1.0]])
-
-        vis.add_geometry(line_x)
-        vis.add_geometry(line_y)
-        vis.add_geometry(line_z)
-
         
-        # Nastavitve izgleda
         render_option = vis.get_render_option()
-        render_option.line_width = 8.0  # debele črte za palice
-        render_option.point_size = 10.0  # velikost pikic
-        render_option.background_color = np.array([1.0, 1.0, 1.0])  # belo ozadje
+        render_option.line_width = 16.0 
+        render_option.point_size = 10.0 
+        render_option.background_color = np.array([1.0, 1.0, 1.0])
 
-        
-        # Pripravi funkcijo za izračun deformacije
+        # izracun deformacije
         def get_displacement(m_idx):
             m_idx = int(round(m_idx))
             mode = self.eig_vec[:, m_idx]
@@ -231,23 +191,21 @@ class Frame3D():
             model_size = np.max(np.ptp(pts_orig, axis=0)) if np.any(pts_orig) else 1.0
             max_val = np.max(np.linalg.norm(disp, axis=1))
             return disp * (model_size * 0.15 / max_val) * scale if max_val > 1e-12 else disp
-        
-        # Stanje animacije
+    
         state = {
             't': 0.0,
-            'animate': False,
+            'animate': True,
             'current_mode': 0,
             'active_disp': get_displacement(0)
         }
         
-        # Funkcija za posodobitev naslova
         def update_window_title():
             anim_status = "ON" if state['animate'] else "OFF"
             print(f"\rMode: {state['current_mode']} | Freq: {self.eig_freq[state['current_mode']]:.2f} Hz | Animacija: {anim_status}", end="", flush=True)
         
         update_window_title()
         
-        # Callbacki za tipke
+        # tipke
         def toggle_animation(vis):
             state['animate'] = not state['animate']
             if state['animate']:
@@ -271,23 +229,22 @@ class Frame3D():
             vis.close()
             return True
         
-        # Registriraj tipke
         vis.register_key_callback(ord(' '), toggle_animation)
         vis.register_key_callback(ord('D'), next_mode)
         vis.register_key_callback(ord('d'), next_mode)
         vis.register_key_callback(ord('A'), prev_mode)
         vis.register_key_callback(ord('a'), prev_mode)
-        vis.register_key_callback(262, next_mode)  # Desna puščica
-        vis.register_key_callback(263, prev_mode)  # Leva puščica
+        vis.register_key_callback(262, next_mode)  # desno puscica
+        vis.register_key_callback(263, prev_mode)  # levo puscica
         vis.register_key_callback(ord('Q'), exit_visualizer)
         vis.register_key_callback(ord('q'), exit_visualizer)
         vis.register_key_callback(256, exit_visualizer)  # ESC
         
         print("\n" + "="*60)
-        print("Frame3D - Modal Analysis with Nodes and Axes")
+        print("Frame3D - Modal shapes animation")
         print("="*60)
         print("NAVODILA:")
-        print("  PRESLEDNICA: vklop/izklop animacije")
+        print("  SPACE: vklop/izklop animacije")
         print("  A/←: prejšnji mode")
         print("  D/→: naslednji mode")
         print("  Q/ESC: izhod")
@@ -297,25 +254,21 @@ class Frame3D():
         print("  Modra: Z os")
         print("="*60 + "\n")
         
-        # Glavna zanka
+        # zanka
         try:
             while True:
                 if state['animate']:
                     state['t'] += 0.15
                     
-                    # Izračunaj deformirane točke
                     factor = np.sin(state['t'])
                     deformed_pts = pts_orig + state['active_disp'] * factor
                     
-                    # Posodobi linije
                     line_set_deformed.points = o3d.utility.Vector3dVector(deformed_pts)
                     vis.update_geometry(line_set_deformed)
                     
-                    # Posodobi pikice na vozliščih
                     points_cloud.points = o3d.utility.Vector3dVector(deformed_pts)
                     vis.update_geometry(points_cloud)
                 
-                # Posodobi vizualizacijo
                 if not vis.poll_events():
                     break
                 vis.update_renderer()
@@ -332,34 +285,68 @@ class Frame3D():
 
 
     def display(self, title="Frame3D - Paličje"):
-        ''' Prikaz nedeformiranega paličja z Open3D - najbolj preprosta verzija '''
+        ''' Display undeformed nodes and elements with visible node points. '''
         import open3d as o3d
         import numpy as np
 
         pts = self.nodes.copy()
+
+        # razpon modela po vseh treh oseh
+        ranges = np.ptp(pts, axis=0)
+        model_size = np.max(ranges)   
+
+        axis_len = model_size * 0.2
         
-        # Pripravi podatke za linije
-        lines = []
-        for e in self.elements:
-            lines.append([e[0], e[1]])
-        
-        # Ustvari geometrijo za paličje
+        lines = [[e[0], e[1]] for e in self.elements]
         line_set = o3d.geometry.LineSet()
         line_set.points = o3d.utility.Vector3dVector(pts)
         line_set.lines = o3d.utility.Vector2iVector(lines)
+        line_set.colors = o3d.utility.Vector3dVector([[0.1, 0.1, 0.1] for _ in range(len(lines))])
         
-        # Črne črte
-        colors = [[0.0, 0.0, 0.0] for _ in range(len(lines))]
-        line_set.colors = o3d.utility.Vector3dVector(colors)
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(pts)
+        pcd.colors = o3d.utility.Vector3dVector([[1.0, 0.0, 0.0] for _ in range(len(pts))]) # Rdeča
         
-        # Vizualizacija
-        o3d.visualization.draw_geometries(
-            [line_set],
-            window_name=title,
-            width=1200,
-            height=800,
-            point_show_normal=False
-        )
+        vis = o3d.visualization.Visualizer()
+        vis.create_window(window_name=title, width=1200, height=800)
+        
+        vis.add_geometry(line_set)
+        vis.add_geometry(pcd)
+
+         # ustvarjanje puscic
+        def create_axis_arrow(direction, color):
+            arrow = o3d.geometry.TriangleMesh.create_arrow(
+                cylinder_radius=axis_len*0.02,
+                cone_radius=axis_len*0.04,
+                cylinder_height=axis_len*0.8,
+                cone_height=axis_len*0.2
+            )
+            arrow.paint_uniform_color(color)
+            
+            if direction == 'x':
+                R = arrow.get_rotation_matrix_from_axis_angle([0, np.pi/2, 0])
+                arrow.rotate(R, center=(0, 0, 0))
+            elif direction == 'y':
+                R = arrow.get_rotation_matrix_from_axis_angle([-np.pi/2, 0, 0])
+                arrow.rotate(R, center=(0, 0, 0))
+            return arrow
+
+        arrow_x = create_axis_arrow('x', [1.0, 0.0, 0.0])
+        arrow_y = create_axis_arrow('y', [0.0, 1.0, 0.0]) 
+        arrow_z = create_axis_arrow('z', [0.0, 0.0, 1.0])
+
+        vis.add_geometry(arrow_x)
+        vis.add_geometry(arrow_y)
+        vis.add_geometry(arrow_z)
+        
+        
+        opt = vis.get_render_option()
+        opt.background_color = np.array([1, 1, 1]) 
+        opt.point_size = 12.0                      
+        opt.line_width = 5.0                  
+        
+        vis.run()
+        vis.destroy_window()
     
 
     def edit_constraints_3d(self):
@@ -374,10 +361,26 @@ class Frame3D():
         import pyvista as pv
         import numpy as np
 
-        self.font_size = 21
+        self.font_size = 15
         self.y_pos = 0.03
-        axis_len = np.max(np.abs(self.nodes)) * 0.25 if np.any(self.nodes) else 1.0
-        self.r_size = axis_len * 0.03  # radij sfer
+        
+        element_lengths = []
+        for e in self.elements:
+            p1 = self.nodes[e[0]]
+            p2 = self.nodes[e[1]]
+            dist = np.linalg.norm(p2 - p1)
+            if dist > 1e-6:
+                element_lengths.append(dist)
+        
+        if element_lengths:
+            min_len = np.min(element_lengths)
+            axis_len = min_len / 3.0
+        else:
+            axis_len = 1.0
+
+
+        self.r_size = axis_len  # radij sfer
+        self.r_size = np.clip(self.r_size, 0, 0.1)
 
         if hasattr(self, 'constraints') and self.constraints is not None:
             self.temp_rows = self.constraints.tolist()
@@ -394,17 +397,38 @@ class Frame3D():
         cells = np.hstack([[2, e[0], e[1]] for e in self.elements])
         mesh = pv.UnstructuredGrid(cells, [pv.CellType.LINE]*len(self.elements), pts)
 
-        # Prikaz paličja
+        # paličje
         p.add_mesh(mesh, color="#555555", line_width=2, render_lines_as_tubes=True)
         p.add_point_labels(pts, [f"{i}" for i in range(len(self.nodes))], 
                         point_size=10, font_size=18, text_color="black", 
                         always_visible=True, name="node_labels", shadow=True)
 
-        # Prikaz koordinatnih osi (3D)
-        axes = pv.Axes(show_actor=True, actor_scale=axis_len, line_width=3)
-        p.add_actor(axes.actor)
+        # koordinatne osi 
+        # 1. Definiraj dolžino osi (uporabi svoj axis_len)
+        origin = [0, 0, 0]
+        
+        # 2. Ustvari in dodaj linije (X=rdeča, Y=zelena, Z=modra)
+        line_x = pv.Line(origin, [axis_len, 0, 0])
+        line_y = pv.Line(origin, [0, axis_len, 0])
+        line_z = pv.Line(origin, [0, 0, axis_len])
 
-        # Uporabniški vmesnik - tekst
+        # 3. Dodaj na plotter s fiksno barvo
+        p.add_mesh(line_x, color='red', line_width=5, name="axis_x")
+        p.add_mesh(line_y, color='green', line_width=5, name="axis_y")
+        p.add_mesh(line_z, color='blue', line_width=5, name="axis_z")
+
+        # 4. Dodaj oznake na konce linij (da veš katera je katera)
+        p.add_point_labels(
+            [[axis_len, 0, 0], [0, axis_len, 0], [0, 0, axis_len]], 
+            ["X", "Y", "Z"], 
+            font_size=15, 
+            text_color='black', 
+            always_visible=True,
+            shadow=False
+        )
+        
+
+        # UI
         p.add_text("[1] Pinned", position=(0.02, self.y_pos), 
                 color='firebrick', font_size=self.font_size, name="st_1", 
                 shadow=True, viewport=True)
@@ -424,57 +448,46 @@ class Frame3D():
         p.add_text("Right click to select a node", position='upper_left', 
                 font_size=self.font_size, color='black', name="instruction_text")
 
-        # Sliderji za kote roller podpore
-        self.roller_angles = {'x': 0, 'y': 0, 'z': 0}
+        # sliderji za kote roller
+        self.roller_angles = {'x': -1, 'y': -1, 'z': -1}
         
         def update_angle_texts():
             p.remove_actor("angle_info")
-            angle_text = f"Roller angles: X={self.roller_angles['x']}°  Y={self.roller_angles['y']}°  Z={self.roller_angles['z']}°"
-            p.add_text(angle_text, position=(0.75, 0.25), 
+            info = []
+            for ax in ['x', 'y', 'z']:
+                val = self.roller_angles[ax]
+                status = "FIXED" if val == -1 else f"{val}°"
+                info.append(f"{ax.upper()}: {status}")
+            
+            angle_text = "Roller status:  " + "  ".join(info)
+            p.add_text(angle_text, position=(0.50, self.y_pos), 
                     color='royalblue', font_size=self.font_size, 
                     name="angle_info", viewport=True, shadow=True)
-        
+
         def slider_x_callback(value):
             self.roller_angles['x'] = int(round(value))
             update_angle_texts()
-        
         def slider_y_callback(value):
             self.roller_angles['y'] = int(round(value))
             update_angle_texts()
-        
         def slider_z_callback(value):
             self.roller_angles['z'] = int(round(value))
             update_angle_texts()
-        
-        # Dodaj sliderje
-        p.add_slider_widget(callback=slider_x_callback, rng=[0, 180], value=0,
-                            pointa=(0.75, 0.20), pointb=(0.95, 0.20), 
-                            style='modern', color="royalblue",
-                            tube_width=0.003, slider_width=0.02, 
-                            title="X angle:")
-        
-        p.add_slider_widget(callback=slider_y_callback, rng=[0, 180], value=0,
-                            pointa=(0.75, 0.15), pointb=(0.95, 0.15), 
-                            style='modern', color="royalblue",
-                            tube_width=0.003, slider_width=0.02, 
-                            title="Y angle:")
-        
-        p.add_slider_widget(callback=slider_z_callback, rng=[0, 180], value=0,
-                            pointa=(0.75, 0.10), pointb=(0.95, 0.10), 
-                            style='modern', color="royalblue",
-                            tube_width=0.003, slider_width=0.02, 
-                            title="Z angle:")
-        
-        update_angle_texts()
 
-        # Nastavitev pogleda
+        # -1 pomeni fiksirano, 0+ pomeni kot drsenja
+        for i, (label, cb) in enumerate([("X angle:", slider_x_callback), 
+                                        ("Y angle:", slider_y_callback), 
+                                        ("Z angle:", slider_z_callback)]):
+            p.add_slider_widget(callback=cb, rng=[-1, 180], value=-1,
+                                pointa=(0.75, 0.35 - i*0.115), pointb=(0.95, 0.35 - i*0.115), 
+                                style='modern', color="royalblue", title=label, slider_width=0.01, tube_width=0.002, fmt="{:.0f}")
+
         p.camera_position = 'iso'
         p.camera.zoom(0.8)
 
         self.last_picked_idx = None
         n_dof = 6 * len(self.nodes)
 
-        # Poenostavljene ikone - samo krogle!
         def draw_pinned_icon(node_idx):
             p.add_mesh(pv.Sphere(radius=self.r_size, center=pts[node_idx]), 
                     color="firebrick", name=f"pinned_{node_idx}")
@@ -483,7 +496,6 @@ class Frame3D():
             p.add_mesh(pv.Sphere(radius=self.r_size, center=pts[node_idx]), 
                     color="royalblue", name=f"roller_{node_idx}")
             
-            # Prikaži kote poleg
             offset = pts[node_idx] + [axis_len*0.15, axis_len*0.15, axis_len*0.15]
             angle_text = f"{self.roller_angles['x']}°/{self.roller_angles['y']}°/{self.roller_angles['z']}°"
             p.add_point_labels([offset], [angle_text], 
@@ -495,26 +507,34 @@ class Frame3D():
             p.add_mesh(pv.Sphere(radius=self.r_size*1.2, center=pts[node_idx]), 
                     color="forestgreen", name=f"fixed_{node_idx}")
 
-        # Nariši obstoječe podpore
+        # Nariši obstoječe podpore ob ponovnem odprtju
         if self.temp_rows:
-            processed_nodes = set()
+            # Grupiraj vrstice po vozliščih
+            node_to_dofs = {}
             for row in self.temp_rows:
                 active_dofs = np.where(np.abs(row) > 1e-6)[0]
-                if len(active_dofs) == 0: continue
-                
-                node_idx = active_dofs[0] // 6
-                if node_idx in processed_nodes: continue
-                
-                dofs_at_node = [dof % 6 for dof in active_dofs if dof // 6 == node_idx]
-                
-                if set(dofs_at_node) == {0, 1, 2}:  # pinned (ux, uy, uz)
-                    draw_pinned_icon(node_idx)
-                elif len(dofs_at_node) == 1 and dofs_at_node[0] in [0, 1, 2]:  # roller (ena os prosta)
-                    draw_roller_icon(node_idx)
-                elif set(dofs_at_node) == {0, 1, 2, 3, 4, 5}:  # fixed
+                for dof in active_dofs:
+                    n_idx = dof // 6
+                    d_idx = dof % 6
+                    if n_idx not in node_to_dofs:
+                        node_to_dofs[n_idx] = set()
+                    node_to_dofs[n_idx].add(d_idx)
+
+            # Za vsako vozlišče ugotovi, kateri tip podpore je
+            for node_idx, dofs in node_to_dofs.items():
+                # POMEMBNO: Gledamo samo translacije (0, 1, 2), da določimo osnovni tip
+                trans_dofs = {d for d in dofs if d < 3}
+                rot_dofs = {d for d in dofs if d >= 3}
+
+                if dofs == {0, 1, 2, 3, 4, 5}:
+                    # Vseh 6 DOF fiksno -> FIXED
                     draw_fixed_icon(node_idx)
-                
-                processed_nodes.add(node_idx)
+                elif trans_dofs == {0, 1, 2} and not rot_dofs:
+                    # Samo vse 3 translacije fiksne -> PINNED
+                    draw_pinned_icon(node_idx)
+                else:
+                    # Vse ostalo (npr. samo 1 ali 2 fiksirana DOF-a) -> ROLLER
+                    draw_roller_icon(node_idx)
 
         def update_status_text():
             p.remove_actor("st_node")
@@ -526,7 +546,7 @@ class Frame3D():
         def pick_callback(point_data, *args):
             idx = mesh.find_closest_point(point_data)
             self.last_picked_idx = idx
-            # Označi izbrano vozlišče
+            # izbere voz
             p.add_mesh(pv.Sphere(radius=self.r_size*1.5, center=pts[idx]), 
                     color="yellow", opacity=0.3, name="selection_glow")
             p.add_mesh(pv.Sphere(radius=self.r_size*0.3, center=pts[idx]), 
@@ -537,12 +557,10 @@ class Frame3D():
             if self.last_picked_idx is not None:
                 idx = self.last_picked_idx
                 dofs = [6*idx + i for i in range(6)]
-                
-                # Odstrani vrstice
+
                 self.temp_rows = [r for r in self.temp_rows 
                                 if all(np.abs(r[d]) < 1e-6 for d in dofs)]
                 
-                # Odstrani vse ikone
                 prefixes = ["pinned_", "roller_", "fixed_"]
                 for prefix in prefixes:
                     p.remove_actor(f"{prefix}{idx}")
@@ -561,19 +579,20 @@ class Frame3D():
         def set_roller():
             if self.last_picked_idx is not None:
                 remove_at_node()
+                idx = self.last_picked_idx
                 
-                # Ustvari roller constraint glede na kote
-                # Tukaj definiramo, katera os je prosta glede na kote
-                # Za primer: če so vsi koti 0, je prosta X os
-                angles = self.roller_angles
+                # Preverimo vsako os (0=X, 1=Y, 2=Z)
+                any_fixed = False
+                for i, axis in enumerate(['x', 'y', 'z']):
+                    # Če je slider na -1, to pomeni, da je ta smer FIKSNA (constraint = 1)
+                    if self.roller_angles[axis] == -1:
+                        r = np.zeros(n_dof)
+                        r[6*idx + i] = 1  # Nastavi constraint na 1 za to os
+                        self.temp_rows.append(r)
+                        any_fixed = True
                 
-                # Poenostavimo: za zdaj vedno naredimo roller v smeri X
-                # (lahko prilagodiš glede na želeno logiko)
-                r = np.zeros(n_dof)
-                r[6*self.last_picked_idx] = 1  # ux prost
-                self.temp_rows.append(r)
-                
-                draw_roller_icon(self.last_picked_idx)
+                draw_roller_icon(idx)
+
 
         def set_fixed():
             if self.last_picked_idx is not None:

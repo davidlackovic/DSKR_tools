@@ -132,59 +132,146 @@ class Frame2D():
             plt.ylim(np.min(self.nodes[:,1])-0.5, np.max(self.nodes[:,1])+0.5)
             plt.xlim(np.min(self.nodes[:,0])-0.5, np.max(self.nodes[:,0])+0.5)
     
-    def animate_mode_shapes(self, scale=0.1):
-        ''' Animate mode shapes using data stored in the object. '''
-        import numpy as np
-        import matplotlib.pyplot as plt
-        from matplotlib.animation import FuncAnimation
-        from matplotlib.widgets import Slider
+    
+    def animate_mode_shapes(self, scale=1.0):
+        """
+        Animates mode shapes of a truss structure according to eigenvectors of the truss.
 
-        nodes = self.nodes
-        elements = self.elements
-        eig_vec = self.eig_vec 
+        This function creates an interactive matplotlib window with an oscillation 
+        animation and a slider to switch between different vibration modes.
+
+        Parameters
+        ----------
+        scale : float, optional
+            Scaling factor for displacements to enhance visualization. Default is 0.1.
+
+        Returns
+        -------
+        matplotlib.animation.FuncAnimation
+            The animation object. A reference to this object must be kept 
+            (e.g., by assigning it to a variable), otherwise Python's garbage 
+            collector will delete it and the animation will stop.
+        """
+        import open3d as o3d
+        import numpy as np
+        import time
+
+        # 1. PRIPRAVA 3D PODATKOV IZ 2D MODELA
+        # Vozlišča razširimo v 3D (dodamo z=0)
+        pts_orig = np.zeros((len(self.nodes), 3))
+        pts_orig[:, :2] = self.nodes
         
-        n_modes = eig_vec.shape[1]
+        lines = [[e[0], e[1]] for e in self.elements]
         
-        def get_current_U(mode_idx):
-            mode = eig_vec[:, mode_idx]
+        # 2. GEOMETRIJA
+        # Nedeformirana mreža (siva)
+        line_set_orig = o3d.geometry.LineSet()
+        line_set_orig.points = o3d.utility.Vector3dVector(pts_orig)
+        line_set_orig.lines = o3d.utility.Vector2iVector(lines)
+        line_set_orig.colors = o3d.utility.Vector3dVector([[0.7, 0.7, 0.7] for _ in range(len(lines))])
+        
+        # Deformirana mreža (modra)
+        line_set_deformed = o3d.geometry.LineSet()
+        line_set_deformed.points = o3d.utility.Vector3dVector(pts_orig)
+        line_set_deformed.lines = o3d.utility.Vector2iVector(lines)
+        line_set_deformed.colors = o3d.utility.Vector3dVector([[0.0, 0.4, 1.0] for _ in range(len(lines))])
+        
+        # Pikice na vozliščih (rdeče)
+        points_cloud = o3d.geometry.PointCloud()
+        points_cloud.points = o3d.utility.Vector3dVector(pts_orig)
+        points_cloud.colors = o3d.utility.Vector3dVector([[1.0, 0.2, 0.2] for _ in range(len(pts_orig))])
+        
+        # 3. VIZUALIZATOR
+        vis = o3d.visualization.VisualizerWithKeyCallback()
+        vis.create_window(window_name="Frame2D - Modal Analysis (Open3D Engine)", width=1200, height=800)
+        
+        vis.add_geometry(line_set_orig)
+        vis.add_geometry(line_set_deformed)
+        vis.add_geometry(points_cloud)
+        
+        # Nastavitve renderiranja
+        opt = vis.get_render_option()
+        opt.background_color = np.array([1, 1, 1])
+        opt.line_width = 10.0
+        opt.point_size = 12.0
+
+        # 4. FUNKCIJA ZA POMIKE (2D -> 3D)
+        def get_displacement(m_idx):
+            mode = self.eig_vec[:, int(m_idx)]
+            # V 2D imamo 3 prostostne stopnje na vozlišče (u, v, phi)
+            # Vzamemo le u (0::3) in v (1::3), z-pomik je 0
             u_pomiki = mode[0::3]
             v_pomiki = mode[1::3]
-            return np.column_stack((u_pomiki, v_pomiki))
+            w_pomiki = np.zeros_like(u_pomiki)
+            
+            disp = np.column_stack((u_pomiki, v_pomiki, w_pomiki))
+            
+            model_size = np.max(np.ptp(pts_orig, axis=0)) if np.any(pts_orig) else 1.0
+            max_val = np.max(np.linalg.norm(disp, axis=1))
+            # Normalizacija in skaliranje
+            if max_val > 1e-12:
+                return disp * (model_size * 0.15 / max_val) * scale
+            return disp
 
-        state = {'U': get_current_U(0)}
+        # Stanje
+        state = {
+            't': 0.0,
+            'animate': True,
+            'current_mode': 0,
+            'active_disp': get_displacement(0)
+        }
 
-        fig, ax = plt.subplots()
-        plt.subplots_adjust(bottom=0.25)
-        ax.set_aspect('equal')
-        
-        ax.set_xlim(np.min(nodes[:,0])-0.4, np.max(nodes[:,0])+0.4)
-        ax.set_ylim(np.min(nodes[:,1])-0.9, np.max(nodes[:,1])+0.9)
+        # 5. CALLBACKI ZA TIPKE
+        def update_info():
+            print(f"\rMode: {state['current_mode']} | Freq: {self.eig_freq[state['current_mode']]:.2f} Hz", end="")
 
-        lines = [ax.plot([], [], '-o', c='C0', markersize=3)[0] for _ in elements]
+        def next_mode(vis):
+            state['current_mode'] = (state['current_mode'] + 1) % self.eig_vec.shape[1]
+            state['active_disp'] = get_displacement(state['current_mode'])
+            update_info()
+            return False
 
-        ax_slider = plt.axes([0.2, 0.1, 0.6, 0.03])
-        slider = Slider(ax_slider, 'Način', 0, n_modes - 1, valinit=0, valstep=1)
+        def prev_mode(vis):
+            state['current_mode'] = (state['current_mode'] - 1) % self.eig_vec.shape[1]
+            state['active_disp'] = get_displacement(state['current_mode'])
+            update_info()
+            return False
 
-        def update_mode(val):
-            state['U'] = get_current_U(int(val))
-            ax.set_title(f"Lastni način: {int(val)}")
-            fig.canvas.draw_idle()
+        def toggle_anim(vis):
+            state['animate'] = not state['animate']
+            return False
 
-        slider.on_changed(update_mode)
+        # Registracija tipk (enak sistem kot v 3D različici)
+        vis.register_key_callback(ord(' '), toggle_anim)
+        vis.register_key_callback(262, next_mode) # Desno
+        vis.register_key_callback(263, prev_mode) # Levo
+        vis.register_key_callback(ord('D'), next_mode)
+        vis.register_key_callback(ord('A'), prev_mode)
 
-        def func(frame):
-            displacement = scale * state['U'] * np.sin(frame)
-            trenutna_voz = nodes + displacement
-            for i, e in enumerate(elements):
-                lines[i].set_data(trenutna_voz[e, 0], trenutna_voz[e, 1])
-            return lines
+        print("\nKONTROLE: [Preslednica] Start/Stop | [A/D] ali [<- / ->] Menjava načina | [Q] Izhod\n")
+        update_info()
 
-        anim = FuncAnimation(fig, func, frames=np.linspace(0, 2*np.pi, 60), 
-                            blit=True, interval=30)
-
-        fig.canvas.manager.slider = slider 
-        plt.show()
-        return anim
+        # 6. GLAVNA ZANKA
+        try:
+            while True:
+                if state['animate']:
+                    state['t'] += 0.15
+                    deformed_pts = pts_orig + state['active_disp'] * np.sin(state['t'])
+                    
+                    # Update geometrije
+                    line_set_deformed.points = o3d.utility.Vector3dVector(deformed_pts)
+                    points_cloud.points = o3d.utility.Vector3dVector(deformed_pts)
+                    
+                    vis.update_geometry(line_set_deformed)
+                    vis.update_geometry(points_cloud)
+                
+                if not vis.poll_events():
+                    break
+                vis.update_renderer()
+                time.sleep(0.01)
+        finally:
+            vis.destroy_window()
+            print("\nAnimacija končana.")
     
     def _update_solver(self):
         '''Method for updating matrices.'''
@@ -224,7 +311,7 @@ class Frame2D():
         self.font_size = 21
         self.y_pos = 0.03
         axis_len = np.max(np.abs(self.nodes)) * 0.25 if np.any(self.nodes) else 1.0
-        self.r_size = axis_len * 0.03 # radij sfer
+        self.r_size = axis_len * 0.1 # radij sfer
 
         if hasattr(self, 'constraints') and self.constraints is not None:
             self.temp_rows = self.constraints.tolist()
