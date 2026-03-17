@@ -81,14 +81,15 @@ class Frame3D():
             self.elements = np.array(all_elements)
             print(f"3D Mesh: {len(self.nodes)} nodes, {len(self.elements)} elements.")
 
-        # 6 prostostnih stopenj na vozlišče
+        # 6 prostostnih stopenj na vozlisce
         self.n_dof = 6 * len(self.nodes)
         self.constraints = constraints if constraints is not None else np.empty((0, self.n_dof))
         self._update_solver()
 
 
     def _update_solver(self):
-        # Klic 3D funkcij s skalarnimi parametri
+        # s skalarnimi parametri
+        # TODO: dodaj vektorske parametre
         M_glob = calculate_M_glob_frame3d(self.nodes, self.elements, self.A, self.rho, self.J)
         K_glob = calculate_K_glob_frame3d(self.nodes, self.elements, self.A, self.E, self.G, self.Iy, self.Iz, self.J)
 
@@ -112,7 +113,6 @@ class Frame3D():
         ''' Animacija lastnih oblik z Open3D - s pikicami na vozliščih in koordinatnimi osmi '''
         pts_orig = self.nodes.copy()
 
-        # razpon modela po vseh treh oseh
         ranges = np.ptp(pts_orig, axis=0)
         model_size = np.max(ranges)   
 
@@ -122,7 +122,7 @@ class Frame3D():
         for e in self.elements:
             lines.append([e[0], e[1]])
         
-        # nedeformirana mreža
+        # nedeformirana mreza
         line_set_orig = o3d.geometry.LineSet()
         line_set_orig.points = o3d.utility.Vector3dVector(pts_orig)
         line_set_orig.lines = o3d.utility.Vector2iVector(lines)
@@ -397,27 +397,25 @@ class Frame3D():
         cells = np.hstack([[2, e[0], e[1]] for e in self.elements])
         mesh = pv.UnstructuredGrid(cells, [pv.CellType.LINE]*len(self.elements), pts)
 
-        # paličje
+        # palicje
         p.add_mesh(mesh, color="#555555", line_width=2, render_lines_as_tubes=True)
         p.add_point_labels(pts, [f"{i}" for i in range(len(self.nodes))], 
                         point_size=10, font_size=18, text_color="black", 
                         always_visible=True, name="node_labels", shadow=True)
 
-        # koordinatne osi 
-        # 1. Definiraj dolžino osi (uporabi svoj axis_len)
+
         origin = [0, 0, 0]
         
-        # 2. Ustvari in dodaj linije (X=rdeča, Y=zelena, Z=modra)
         line_x = pv.Line(origin, [axis_len, 0, 0])
         line_y = pv.Line(origin, [0, axis_len, 0])
         line_z = pv.Line(origin, [0, 0, axis_len])
 
-        # 3. Dodaj na plotter s fiksno barvo
+
         p.add_mesh(line_x, color='red', line_width=5, name="axis_x")
         p.add_mesh(line_y, color='green', line_width=5, name="axis_y")
         p.add_mesh(line_z, color='blue', line_width=5, name="axis_z")
 
-        # 4. Dodaj oznake na konce linij (da veš katera je katera)
+        # oznake na konce linij
         p.add_point_labels(
             [[axis_len, 0, 0], [0, axis_len, 0], [0, 0, axis_len]], 
             ["X", "Y", "Z"], 
@@ -507,9 +505,8 @@ class Frame3D():
             p.add_mesh(pv.Sphere(radius=self.r_size*1.2, center=pts[node_idx]), 
                     color="forestgreen", name=f"fixed_{node_idx}")
 
-        # Nariši obstoječe podpore ob ponovnem odprtju
+        # naris obstojece podpore
         if self.temp_rows:
-            # Grupiraj vrstice po vozliščih
             node_to_dofs = {}
             for row in self.temp_rows:
                 active_dofs = np.where(np.abs(row) > 1e-6)[0]
@@ -520,20 +517,18 @@ class Frame3D():
                         node_to_dofs[n_idx] = set()
                     node_to_dofs[n_idx].add(d_idx)
 
-            # Za vsako vozlišče ugotovi, kateri tip podpore je
             for node_idx, dofs in node_to_dofs.items():
-                # POMEMBNO: Gledamo samo translacije (0, 1, 2), da določimo osnovni tip
                 trans_dofs = {d for d in dofs if d < 3}
                 rot_dofs = {d for d in dofs if d >= 3}
 
                 if dofs == {0, 1, 2, 3, 4, 5}:
-                    # Vseh 6 DOF fiksno -> FIXED
+                    # FIXED
                     draw_fixed_icon(node_idx)
                 elif trans_dofs == {0, 1, 2} and not rot_dofs:
-                    # Samo vse 3 translacije fiksne -> PINNED
+                    # PINNED
                     draw_pinned_icon(node_idx)
                 else:
-                    # Vse ostalo (npr. samo 1 ali 2 fiksirana DOF-a) -> ROLLER
+                    # ROLLER
                     draw_roller_icon(node_idx)
 
         def update_status_text():
@@ -581,13 +576,12 @@ class Frame3D():
                 remove_at_node()
                 idx = self.last_picked_idx
                 
-                # Preverimo vsako os (0=X, 1=Y, 2=Z)
                 any_fixed = False
                 for i, axis in enumerate(['x', 'y', 'z']):
-                    # Če je slider na -1, to pomeni, da je ta smer FIKSNA (constraint = 1)
+                    # ce je slider na -1 je ta smer fiksna (constraint = 1)
                     if self.roller_angles[axis] == -1:
                         r = np.zeros(n_dof)
-                        r[6*idx + i] = 1  # Nastavi constraint na 1 za to os
+                        r[6*idx + i] = 1  # constraint na 1 za to os
                         self.temp_rows.append(r)
                         any_fixed = True
                 
@@ -603,24 +597,21 @@ class Frame3D():
                     self.temp_rows.append(row)
                 draw_fixed_icon(self.last_picked_idx)
 
-        # Omogoči izbiranje vozlišč
+        # izbiranje vozlišč
         p.enable_point_picking(
             callback=pick_callback, 
             show_message=False,
             left_clicking=False,
             pickable_window=True
         )
-
-        # Dodaj tipkovne bližnjice
+        # tipke
         p.add_key_event('1', set_pinned)
         p.add_key_event('2', set_roller)
         p.add_key_event('3', set_fixed)
         p.add_key_event('4', remove_at_node)
 
-        # Prikaži
         p.show()
 
-        # Shrani spremembe
         if self.temp_rows:
             self.constraints = np.array(self.temp_rows)
             print("Constraints updated. Solver will be updated.")
@@ -637,20 +628,19 @@ def calculate_K_glob_frame3d(nodes, elements, A, E, G, Iy, Iz, J):
         p1, p2 = nodes[n1], nodes[n2]
         L = np.linalg.norm(p2 - p1)
         
-        # --- Lokalna togostna matrika (12x12) ---
         ke = np.zeros((12, 12))
         
-        # Osna togost (u)
+        # osna togost
         ae_l = E * A / L
         ke[0,0] = ke[6,6] = ae_l
         ke[0,6] = ke[6,0] = -ae_l
         
-        # Torzijska togost (phi_x)
+        # torzijska togost
         gj_l = G * J / L
         ke[3,3] = ke[9,9] = gj_l
         ke[3,9] = ke[9,3] = -gj_l
         
-        # Upogib okoli lokalne osi Z (v, phi_z)
+        # upogib okoli lokalne osi Z
         iz_l = E * Iz / L**3
         ke[1,1] = ke[7,7] = 12 * iz_l
         ke[1,7] = ke[7,1] = -12 * iz_l
@@ -659,7 +649,7 @@ def calculate_K_glob_frame3d(nodes, elements, A, E, G, Iy, Iz, J):
         ke[5,5] = ke[11,11] = 4 * E * Iz / L
         ke[5,11] = ke[11,5] = 2 * E * Iz / L
 
-        # Upogib okoli lokalne osi Y (w, phi_y)
+        # upogib okoli lokalne osi Y
         iy_l = E * Iy / L**3
         ke[2,2] = ke[8,8] = 12 * iy_l
         ke[2,8] = ke[8,2] = -12 * iy_l
@@ -668,11 +658,9 @@ def calculate_K_glob_frame3d(nodes, elements, A, E, G, Iy, Iz, J):
         ke[4,4] = ke[10,10] = 4 * E * Iy / L
         ke[4,10] = ke[10,4] = 2 * E * Iy / L
 
-        # --- Transformacija ---
         T = get_transformation_matrix_3d(p1, p2)
         ke_g = T.T @ ke @ T
         
-        # --- Sestavljanje ---
         dofs = np.concatenate([np.arange(n1*6, n1*6+6), np.arange(n2*6, n2*6+6)])
         M_idx = np.ix_(dofs, dofs)
         K_glob[M_idx] += ke_g
@@ -690,23 +678,21 @@ def calculate_M_glob_frame3d(nodes, elements, A, rho, J):
         p1, p2 = nodes[n1], nodes[n2]
         L = np.linalg.norm(p2 - p1)
         
-        # --- Lokalna konsistentna masna matrika (12x12) ---
         me = np.zeros((12, 12))
         c1 = (rho * A * L) / 420
         
-        # Osni del (u)
+        # osna vztrajnost
         me[0,0] = me[6,6] = 140 * c1; me[0,6] = me[6,0] = 70 * c1
         
-        # Torzijski del (phi_x) - rotacijska vztrajnost okoli osi
+        # rotacijska vztrajnost torzije
         c_tor = (rho * J * L) / 3
         me[3,3] = me[9,9] = c_tor; me[3,9] = me[9,3] = c_tor / 2
         
-        # Upogibni del (v, phi_z) in (w, phi_y)
-        # Za oba upogiba so koeficienti v konsistentni matriki enaki
+        # upogibna vztrajnost
         for off in [0, 1]: # 0 za ravnino xy, 1 za ravnino xz
             d = off + 1
             r = 5 if off == 0 else 4 # phi_z ali phi_y
-            s = 1 if off == 0 else -1 # predznak za določene člene zaradi desnosučnega sistema
+            s = 1 if off == 0 else -1 # predznak zaradi desnega KS
             
             me[d, d] = me[d+6, d+6] = 156 * c1
             me[d, r] = me[r, d] = s * 22 * L * c1
@@ -717,11 +703,9 @@ def calculate_M_glob_frame3d(nodes, elements, A, rho, J):
             me[d+6, r+6] = me[r+6, d+6] = -s * 22 * L * c1
             me[d, d+6] = me[d+6, d] = 54 * c1
 
-        # --- Transformacija ---
         T = get_transformation_matrix_3d(p1, p2)
         me_g = T.T @ me @ T
         
-        # --- Sestavljanje ---
         dofs = np.concatenate([np.arange(n1*6, n1*6+6), np.arange(n2*6, n2*6+6)])
         M_glob[np.ix_(dofs, dofs)] += me_g
 
@@ -729,11 +713,11 @@ def calculate_M_glob_frame3d(nodes, elements, A, rho, J):
 
 def get_transformation_matrix_3d(p1, p2):
     L = np.linalg.norm(p2 - p1)
-    ex = (p2 - p1) / L  # Lokalna os x (smer palice)
+    ex = (p2 - p1) / L  # lokalna os x
     
-    # Določitev lokalne osi z (up vector). 
-    # Če je palica navpična, uporabimo os Y, sicer os Z.
-    if abs(ex[0]) < 1e-6 and abs(ex[1]) < 1e-6: # Navpična palica
+    # lokalna os z 
+    # ce je navpična, uporabimo os y, drugace os z.
+    if abs(ex[0]) < 1e-6 and abs(ex[1]) < 1e-6: # nvpična palica
         up = np.array([0, 1, 0])
     else:
         up = np.array([0, 0, 1])
