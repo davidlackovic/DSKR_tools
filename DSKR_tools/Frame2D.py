@@ -156,32 +156,25 @@ class Frame2D():
         import numpy as np
         import time
 
-        # 1. PRIPRAVA 3D PODATKOV IZ 2D MODELA
-        # Vozlišča razširimo v 3D (dodamo z=0)
         pts_orig = np.zeros((len(self.nodes), 3))
         pts_orig[:, :2] = self.nodes
         
         lines = [[e[0], e[1]] for e in self.elements]
         
-        # 2. GEOMETRIJA
-        # Nedeformirana mreža (siva)
         line_set_orig = o3d.geometry.LineSet()
         line_set_orig.points = o3d.utility.Vector3dVector(pts_orig)
         line_set_orig.lines = o3d.utility.Vector2iVector(lines)
         line_set_orig.colors = o3d.utility.Vector3dVector([[0.7, 0.7, 0.7] for _ in range(len(lines))])
         
-        # Deformirana mreža (modra)
         line_set_deformed = o3d.geometry.LineSet()
         line_set_deformed.points = o3d.utility.Vector3dVector(pts_orig)
         line_set_deformed.lines = o3d.utility.Vector2iVector(lines)
         line_set_deformed.colors = o3d.utility.Vector3dVector([[0.0, 0.4, 1.0] for _ in range(len(lines))])
         
-        # Pikice na vozliščih (rdeče)
         points_cloud = o3d.geometry.PointCloud()
         points_cloud.points = o3d.utility.Vector3dVector(pts_orig)
         points_cloud.colors = o3d.utility.Vector3dVector([[1.0, 0.2, 0.2] for _ in range(len(pts_orig))])
         
-        # 3. VIZUALIZATOR
         vis = o3d.visualization.VisualizerWithKeyCallback()
         vis.create_window(window_name="Frame2D - Modal Analysis (Open3D Engine)", width=1200, height=800)
         
@@ -189,17 +182,14 @@ class Frame2D():
         vis.add_geometry(line_set_deformed)
         vis.add_geometry(points_cloud)
         
-        # Nastavitve renderiranja
         opt = vis.get_render_option()
         opt.background_color = np.array([1, 1, 1])
         opt.line_width = 10.0
         opt.point_size = 12.0
 
-        # 4. FUNKCIJA ZA POMIKE (2D -> 3D)
         def get_displacement(m_idx):
             mode = self.eig_vec[:, int(m_idx)]
-            # V 2D imamo 3 prostostne stopnje na vozlišče (u, v, phi)
-            # Vzamemo le u (0::3) in v (1::3), z-pomik je 0
+            # prikazemo samo x in y pomike
             u_pomiki = mode[0::3]
             v_pomiki = mode[1::3]
             w_pomiki = np.zeros_like(u_pomiki)
@@ -208,12 +198,11 @@ class Frame2D():
             
             model_size = np.max(np.ptp(pts_orig, axis=0)) if np.any(pts_orig) else 1.0
             max_val = np.max(np.linalg.norm(disp, axis=1))
-            # Normalizacija in skaliranje
+            # skaliranje
             if max_val > 1e-12:
                 return disp * (model_size * 0.15 / max_val) * scale
             return disp
 
-        # Stanje
         state = {
             't': 0.0,
             'animate': True,
@@ -221,7 +210,6 @@ class Frame2D():
             'active_disp': get_displacement(0)
         }
 
-        # 5. CALLBACKI ZA TIPKE
         def update_info():
             print(f"\rMode: {state['current_mode']} | Freq: {self.eig_freq[state['current_mode']]:.2f} Hz", end="")
 
@@ -241,24 +229,23 @@ class Frame2D():
             state['animate'] = not state['animate']
             return False
 
-        # Registracija tipk (enak sistem kot v 3D različici)
+        # tipke
         vis.register_key_callback(ord(' '), toggle_anim)
-        vis.register_key_callback(262, next_mode) # Desno
-        vis.register_key_callback(263, prev_mode) # Levo
+        vis.register_key_callback(262, next_mode) # desno
+        vis.register_key_callback(263, prev_mode) # levo
         vis.register_key_callback(ord('D'), next_mode)
         vis.register_key_callback(ord('A'), prev_mode)
 
         print("\nKONTROLE: [Preslednica] Start/Stop | [A/D] ali [<- / ->] Menjava načina | [Q] Izhod\n")
         update_info()
 
-        # 6. GLAVNA ZANKA
+
         try:
             while True:
                 if state['animate']:
                     state['t'] += 0.15
                     deformed_pts = pts_orig + state['active_disp'] * np.sin(state['t'])
                     
-                    # Update geometrije
                     line_set_deformed.points = o3d.utility.Vector3dVector(deformed_pts)
                     points_cloud.points = o3d.utility.Vector3dVector(deformed_pts)
                     
@@ -582,15 +569,14 @@ def calculate_M_glob_frame(nodes, elements, A, rho):
     c = diffs[:, 0] / Le
     s = diffs[:, 1] / Le
 
-    # 1. Gradnja lokalne masne matrike (6x6)
     m_loc = np.zeros((n_ele, 6, 6))
     coeff = (rho * A * Le / 420)
     
-    # Osni del
+    # osni del
     m_loc[:, 0, 0] = 140; m_loc[:, 0, 3] = 70
     m_loc[:, 3, 0] = 70;  m_loc[:, 3, 3] = 140
     
-    # Upogibni del
+    # upogib
     m_loc[:, 1, 1] = 156;    m_loc[:, 1, 2] = 22*Le;   m_loc[:, 1, 4] = 54;     m_loc[:, 1, 5] = -13*Le
     m_loc[:, 2, 1] = 22*Le;  m_loc[:, 2, 2] = 4*Le**2;  m_loc[:, 2, 4] = 13*Le;  m_loc[:, 2, 5] = -3*Le**2
     m_loc[:, 4, 1] = 54;     m_loc[:, 4, 2] = 13*Le;   m_loc[:, 4, 4] = 156;    m_loc[:, 4, 5] = -22*Le
@@ -598,25 +584,19 @@ def calculate_M_glob_frame(nodes, elements, A, rho):
     
     m_loc *= coeff[:, np.newaxis, np.newaxis]
 
-    # 2. Vektorizirana gradnja transformacijske matrike T (6, 6)
-    # Namesto zanke uporabimo napredno indeksiranje
     T = np.zeros((n_ele, 6, 6))
     
-    # Vozlišče 1 rotacijski blok
     T[:, 0, 0] = c;  T[:, 0, 1] = s
     T[:, 1, 0] = -s; T[:, 1, 1] = c
     T[:, 2, 2] = 1.0
     
-    # Vozlišče 2 rotacijski blok
     T[:, 3, 3] = c;  T[:, 3, 4] = s
     T[:, 4, 3] = -s; T[:, 4, 4] = c
     T[:, 5, 5] = 1.0
 
-    # 3. Transformacija vseh elementov hkrati: M_glob_ele = T.T @ M_loc @ T
-    # swapaxes(1, 2) opravi transponiranje 6x6 matrik za vse elemente hkrati
     M_vsi = T.swapaxes(1, 2) @ m_loc @ T
 
-    # 4. Sestavljanje v globalno matriko
+    # v globalno matriko
     indeksi = (elements.flatten()[:, np.newaxis] * 3 + [0, 1, 2]).flatten().reshape(-1, 6)
     rows = indeksi[:, :, np.newaxis]
     cols = indeksi[:, np.newaxis, :]
