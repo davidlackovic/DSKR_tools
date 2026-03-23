@@ -67,13 +67,18 @@ class Frame2D():
             deformations but increases the size of the global stiffness matrix 
             and total computation time.
         '''
-
-        self.nodes = nodes
+        
+        # preveri da gre za 2D in ne 3D
+        if nodes.shape[1] != 2:
+            raise TypeError("List of nodes must be a 2D array with shape (N, 2)")
+        
+        self.nodes = nodes        
         self.elements = elements
         self.A = A
         self.E = E
         self.I = I
         self.rho = rho
+        self.type = "frame"
 
         # TODO fix converting E, A, I, rho to vectors
 
@@ -265,6 +270,8 @@ class Frame2D():
 
         M_glob = calculate_M_glob_frame(self.nodes, self.elements, self.A, self.rho)
         K_glob = calculate_K_glob_frame(self.nodes, self.elements, self.A, self.I, self.E)
+        self.M_glob = M_glob
+        self.K_glob = K_glob
 
         if self.constraints is not None:
             L = sp.linalg.null_space(self.constraints)

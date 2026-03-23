@@ -48,6 +48,10 @@ class Frame3D():
             Subdivision factor for elements (linear interpolation in 3D).
         '''
 
+        # preveri da gre za 3D in ne 2D
+        if nodes.shape[1] != 3:
+            raise TypeError("List of nodes must be a 2D array with shape (N, 2)")
+
         self.nodes = nodes
         self.elements = elements
         self.A = A

@@ -44,38 +44,28 @@ class Truss2D():
 
         constraints : np.ndarray, shape (n_constraints, n_dof), optional
             Global constraint matrix where each row represents a linear 
-            boundary condition (e.g., u=0, v=0, or inclined roller supports).
+            boundary condition.
             * n_constraints: Total number of prescribed degrees of freedom.
             * n_dof: Total degrees of freedom in the system (n_nodes * 2).
             If None, the system is unconstrained.
 
-        Example
-        -------
-        >>> A, rho, E, L0 = 100.e-6, 7850., 2.e11, 1.0
-        >>> nodes = np.array([[0, 0], [L0, 0], [0, L0]])
-        >>> elements = np.array([[0, 1], [1, 2], [0, 2]])
-
-        >>> # pinned support at node 0, roller support at 45° at node 1
-        >>> phi = np.radians(45)
-        >>> constraints = np.zeros((3, 6)) # 3 nodes * 2 DOF = 6 columns
-        >>> constraints[0, 0] = 1 # Node 0, u = 0
-        >>> constraints[1, 1] = 1 # Node 0, v = 0
-        >>> constraints[2, 2] = np.cos(phi + np.pi/2) # Node 1, normal constraint
-        >>> constraints[2, 3] = np.sin(phi + np.pi/2)
-
-        >>> truss = DSKR_tools.Truss2D(nodes, elements, A, E, rho, constraints)
         '''
+
+        # preveri da gre za 2D in ne 3D
+        if nodes.shape[1] != 2:
+            raise TypeError("List of nodes must be a 2D array with shape (N, 2)")
 
         self.nodes = nodes
         self.elements = elements
         self.A = A
         self.E = E
         self.rho = rho
+        self.type = "truss"
 
         self.constraints = constraints if constraints is not None else np.empty((0, 2 * len(nodes)))
         self._update_solver()
     
-    def display_truss(self):
+    def display(self):
         ''' Display a truss structure according to given nodes and elements.
         '''
 
@@ -165,6 +155,8 @@ class Truss2D():
 
         M_glob = calculate_M_glob_truss(self.nodes, self.elements, self.A, self.rho)
         K_glob = calculate_K_glob_truss(self.nodes, self.elements, self.A, self.E)
+        self.M_glob = M_glob
+        self.K_glob = K_glob
 
         if self.constraints is not None:
             L = sp.linalg.null_space(self.constraints)
@@ -349,7 +341,7 @@ class Truss2D():
 
         p.add_slider_widget(callback=slider_callback, rng=[0, 180], value=0,
                             pointa=(0.6, 0.9), pointb=(0.9, 0.9), style='modern', color="black",
-                            tube_width=0.003, slider_width=0.02)
+                            tube_width=0.003, slider_width=0.02, fmt="{:.0f}")
 
         p.add_text("Right click to select a node", position='upper_left', 
                    font_size=12, color='black', name="instruction_text")
