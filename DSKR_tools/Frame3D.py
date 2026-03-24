@@ -9,6 +9,9 @@ import time
 
 
 class Frame3D():
+    '''A universal class for 3D truss analysis using FEM with Frame elements.
+   
+    '''
     def __init__(
         self, 
         nodes: np.ndarray, 
@@ -38,7 +41,7 @@ class Frame3D():
             Cross-sectional and material properties. Can be scalar or vectors.
             - G: Shear modulus
             - Iy, Iz: Second moments of area (bending)
-            - J: Torsional constant
+            - J: Mass moment of inertia
             - rho: Density
 
         constraints : np.ndarray, shape (n_constraints, n_dof), optional
@@ -61,6 +64,10 @@ class Frame3D():
         self.Iz = Iz
         self.J = J
         self.rho = rho
+        self.type = "frame"
+
+        # s skalarnimi parametri
+        # TODO: dodaj vektorske parametre
 
         if n_mesh is not None and n_mesh > 1:
             all_nodes = list(self.nodes)
@@ -92,21 +99,22 @@ class Frame3D():
 
 
     def _update_solver(self):
-        # s skalarnimi parametri
-        # TODO: dodaj vektorske parametre
-        M_glob = calculate_M_glob_frame3d(self.nodes, self.elements, self.A, self.rho, self.J)
-        K_glob = calculate_K_glob_frame3d(self.nodes, self.elements, self.A, self.E, self.G, self.Iy, self.Iz, self.J)
+        '''Method for updating matrices.'''
+
+        self.M_glob = calculate_M_glob_frame3d(self.nodes, self.elements, self.A, self.rho, self.J)
+        self.K_glob = calculate_K_glob_frame3d(self.nodes, self.elements, self.A, self.E, self.G, self.Iy, self.Iz, self.J)
+        
 
         if self.constraints.size > 0:
             L = sp.linalg.null_space(self.constraints)
-            M_c = L.T @ M_glob @ L
-            K_c = L.T @ K_glob @ L
+            M_c = L.T @ self.M_glob @ L
+            K_c = L.T @ self.K_glob @ L
             
             val, vec_c = sp.linalg.eigh(K_c, M_c)
             self.eig_vec = L @ vec_c
             self.eig_val = np.abs(val)
         else:
-            self.eig_val, self.eig_vec = sp.linalg.eigh(K_glob, M_glob)
+            self.eig_val, self.eig_vec = sp.linalg.eigh(self.K_glob, self.M_glob)
             self.eig_val = np.abs(self.eig_val)
 
         self.eig_freq = (np.sqrt(self.eig_val) / (2 * np.pi)).round(3)
@@ -358,7 +366,7 @@ class Frame3D():
         
         Supports:
         - [1] Pinned support (ux=uy=uz=0)
-        - [2] Roller support (nastavljivi koti s sliderji)
+        - [2] Roller support (set slider angle with sliders)
         - [3] Fixed support (all 6 DOFs=0)
         - [4] Remove constraints at node
         '''
@@ -408,16 +416,14 @@ class Frame3D():
                         always_visible=True, name="node_labels", shadow=True)
 
 
+        # koordinatne osi
         origin = [0, 0, 0]
-        
-        line_x = pv.Line(origin, [axis_len, 0, 0])
-        line_y = pv.Line(origin, [0, axis_len, 0])
-        line_z = pv.Line(origin, [0, 0, axis_len])
+        p.add_mesh(pv.Line(origin, [axis_len, 0, 0]), color='red', line_width=5, name="axis_x")
+        p.add_mesh(pv.Line(origin, [0, axis_len, 0]), color='green', line_width=5, name="axis_y")
+        p.add_mesh(pv.Line(origin, [0, 0, axis_len]), color='blue', line_width=5, name="axis_z")
+        p.add_point_labels([[axis_len, 0, 0], [0, axis_len, 0], [0, 0, axis_len]], 
+                          ["X", "Y", "Z"], font_size=15, text_color='black', always_visible=True)
 
-
-        p.add_mesh(line_x, color='red', line_width=5, name="axis_x")
-        p.add_mesh(line_y, color='green', line_width=5, name="axis_y")
-        p.add_mesh(line_z, color='blue', line_width=5, name="axis_z")
 
         # oznake na konce linij
         p.add_point_labels(
@@ -601,7 +607,7 @@ class Frame3D():
                     self.temp_rows.append(row)
                 draw_fixed_icon(self.last_picked_idx)
 
-        # izbiranje vozlišč
+        # izbiranje vozlisc - desni klik
         p.enable_point_picking(
             callback=pick_callback, 
             show_message=False,

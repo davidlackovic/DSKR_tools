@@ -5,7 +5,7 @@ from typing import Optional, Union
 import pyvista as pv
 
 class Truss2D():
-    '''A universal class for 2D truss analysis using FEM.
+    '''A universal class for 2D truss analysis using FEM with Truss elements.
    
     '''
     def __init__(
@@ -62,6 +62,9 @@ class Truss2D():
         self.rho = rho
         self.type = "truss"
 
+        # s skalarnimi parametri
+        # TODO: dodaj vektorske parametre
+
         self.constraints = constraints if constraints is not None else np.empty((0, 2 * len(nodes)))
         self._update_solver()
     
@@ -75,79 +78,123 @@ class Truss2D():
             plt.xlim(np.min(self.nodes[:,0])-0.5, np.max(self.nodes[:,0])+0.5)
     
     
-    def animate_mode_shapes(self, scale=0.1):
+    def animate_mode_shapes(self, scale=1.0):
         """
-        Animates mode shapes of a truss structure according to eigenvectors of the truss.
-
-        This function creates an interactive matplotlib window with an oscillation 
-        animation and a slider to switch between different vibration modes.
-
-        Parameters
-        ----------
-        scale : float, optional
-            Scaling factor for displacements to enhance visualization. Default is 0.1.
-
-        Returns
-        -------
-        matplotlib.animation.FuncAnimation
-            The animation object. A reference to this object must be kept 
-            (e.g., by assigning it to a variable), otherwise Python's garbage 
-            collector will delete it and the animation will stop.
-        """
+        Animacija lastnih oblik za Truss2D z uporabo Open3D.
         
+        Kontrole:
+          - SPACE: Start/Stop animacije
+          - D / DESNA PUŠČICA: Naslednji lastni način
+          - A / LEVA PUŠČICA: Prejšnji lastni način
+          - Q / ESC: Izhod
+        """
+        import open3d as o3d
         import numpy as np
-        import matplotlib.pyplot as plt
-        from matplotlib.animation import FuncAnimation
-        from matplotlib.widgets import Slider
+        import time
+
+        nodes_2d = self.nodes
+        n_nodes = len(nodes_2d)
+        pts_orig = np.zeros((n_nodes, 3))
+        pts_orig[:, :2] = nodes_2d
+
+        model_size = np.max(np.ptp(nodes_2d, axis=0)) if np.any(nodes_2d) else 1.0
+        axis_len = model_size * 0.2
+
+        lines_indices = [[e[0], e[1]] for e in self.elements]
+
+        line_set_orig = o3d.geometry.LineSet()
+        line_set_orig.points = o3d.utility.Vector3dVector(pts_orig)
+        line_set_orig.lines = o3d.utility.Vector2iVector(lines_indices)
+        line_set_orig.colors = o3d.utility.Vector3dVector([[0.7, 0.7, 0.7] for _ in range(len(lines_indices))])
 
 
-        nodes = self.nodes
-        elements = self.elements
-        eig_vec = self.eig_vec
+        line_set_deformed = o3d.geometry.LineSet()
+        line_set_deformed.points = o3d.utility.Vector3dVector(pts_orig)
+        line_set_deformed.lines = o3d.utility.Vector2iVector(lines_indices)
+        line_set_deformed.colors = o3d.utility.Vector3dVector([[0.0, 0.4, 1.0] for _ in range(len(lines_indices))])
 
-        n_modes = eig_vec.shape[1]
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(pts_orig)
+        pcd.colors = o3d.utility.Vector3dVector([[1.0, 0.2, 0.2] for _ in range(n_nodes)])
+
+        vis = o3d.visualization.VisualizerWithKeyCallback()
+        vis.create_window(window_name="Truss2D - Open3D Animacija", width=1200, height=800)
         
+        vis.add_geometry(line_set_orig)
+        vis.add_geometry(line_set_deformed)
+        vis.add_geometry(pcd)
+
+        def get_displacement(m_idx):
+            mode = self.eig_vec[:, int(m_idx)]
+
+            disp_2d = mode.reshape(n_nodes, 2)
+            disp_3d = np.zeros((n_nodes, 3))
+            disp_3d[:, :2] = disp_2d
+            
+            max_val = np.max(np.linalg.norm(disp_3d, axis=1))
+            if max_val < 1e-12: return disp_3d
+
+            return disp_3d * (model_size * 0.15 / max_val) * scale
+
         state = {
-            'U': eig_vec[:, 0].reshape(len(nodes), 2)
+            't': 0.0,
+            'animate': True,
+            'current_mode': 0,
+            'active_disp': get_displacement(0)
         }
 
-        fig, ax = plt.subplots()
-        plt.subplots_adjust(bottom=0.2)
-        ax.set_aspect('equal')
-        
-        ax.set_xlim(np.min(nodes[:,0])-1.5, np.max(nodes[:,0])+1.5)
-        ax.set_ylim(np.min(nodes[:,1])-1.5, np.max(nodes[:,1])+1.5)
+        def update_title():
+            freq = self.eig_freq[state['current_mode']]
+            print(f"\rNačin: {state['current_mode']} | Frekvenca: {freq:.2f} Hz", end="", flush=True)
 
-        lines = [ax.plot([], [], '-o', c='C0')[0] for _ in elements]
+        def next_mode(v):
+            state['current_mode'] = (state['current_mode'] + 1) % len(self.eig_freq)
+            state['active_disp'] = get_displacement(state['current_mode'])
+            update_title()
+            return False
 
-        ax_slider = plt.axes([0.2, 0.05, 0.6, 0.03])
-        slider = Slider(ax_slider, 'Lastni način', 0, n_modes - 1, valinit=0, valstep=1)
+        def prev_mode(v):
+            state['current_mode'] = (state['current_mode'] - 1) % len(self.eig_freq)
+            state['active_disp'] = get_displacement(state['current_mode'])
+            update_title()
+            return False
 
-        def update_mode(val):
-            mode_idx = int(val)
+        def toggle_anim(v):
+            state['animate'] = not state['animate']
+            return False
 
-            state['U'] = eig_vec[:, mode_idx].reshape(len(nodes), 2)
-            ax.set_title(f"Lastni način: {mode_idx}")
+        vis.register_key_callback(ord('D'), next_mode)
+        vis.register_key_callback(262, next_mode) # desno puscica
+        vis.register_key_callback(ord('A'), prev_mode)
+        vis.register_key_callback(263, prev_mode) # levo puscica
+        vis.register_key_callback(ord(' '), toggle_anim)
 
-        slider.on_changed(update_mode)
+        render_opt = vis.get_render_option()
+        render_opt.background_color = np.array([1, 1, 1])
+        render_opt.point_size = 10.0
+        render_opt.line_width = 8.0
 
-        def func(frame):
-            t = frame
-            displacement = scale * state['U'] * np.sin(t)
-            trenutna_voz = nodes + displacement
-            
-            for i, e in enumerate(elements):
-                lines[i].set_data(trenutna_voz[e, 0], trenutna_voz[e, 1])
-            
-            return lines
+        update_title()
 
-        anim = FuncAnimation(fig, func, frames=np.linspace(0, 2*np.pi, 60), 
-                            blit=True, interval=20, repeat=True)
-
-        fig.canvas.manager.slider = slider 
-
-        plt.show()
-        return anim
+        try:
+            while True:
+                if state['animate']:
+                    state['t'] += 0.15
+                    factor = np.sin(state['t'])
+                    deformed_pts = pts_orig + state['active_disp'] * factor
+                    
+                    line_set_deformed.points = o3d.utility.Vector3dVector(deformed_pts)
+                    pcd.points = o3d.utility.Vector3dVector(deformed_pts)
+                    
+                    vis.update_geometry(line_set_deformed)
+                    vis.update_geometry(pcd)
+                
+                if not vis.poll_events():
+                    break
+                vis.update_renderer()
+                time.sleep(0.01)
+        finally:
+            vis.destroy_window()
         
     
     def _update_solver(self):
@@ -183,6 +230,11 @@ class Truss2D():
 
     def edit_constraints(self):
         '''Open a UI to edit constraints of a Truss2D object. 
+
+        Supports:
+        - [1] Pinned support (ux=uy=uz=0)
+        - [2] Roller support (set angle with slider)
+        - [3] Remove constraints at node
 
         If there are existing constraints you can remove them or add more within this function. \n
         Compatible with passing constraint matrix when creating Truss2D object. 
@@ -269,18 +321,16 @@ class Truss2D():
                 if node_idx in processed_nodes: continue
                 
                 base = 2 * node_idx
-                # Poiščemo vse vrstice, ki pripadajo temu vozlišču
                 node_rows = [r for r in self.temp_rows if np.abs(r[base]) > 1e-6 or np.abs(r[base+1]) > 1e-6]
                 
                 if len(node_rows) == 2:
-                    # Dve enačbi za eno vozlišče = Pinned (u=0, v=0)
+                    # dve enacbi je pinned (u=0, v=0)
                     draw_fixed_icon(node_idx)
                 elif len(node_rows) == 1:
-                    # Ena enačba = Roller pod kotom
+                    # ena enacba je roller
                     r = node_rows[0]
-                    # Izračunamo kot normale: arctan2(sin, cos)
+                    # kot normale
                     angle_rad = np.arctan2(r[base+1], r[base])
-                    # Odštejemo 90 stopinj, da dobimo kot podlage (kot v sliderju)
                     angle_deg = (np.degrees(angle_rad) - 90) % 180
                     draw_angled_icon(node_idx, round(angle_deg))
                 
